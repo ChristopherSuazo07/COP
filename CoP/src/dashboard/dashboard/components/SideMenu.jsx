@@ -39,7 +39,7 @@ export default function SideMenu() {
         }}
       >
         {
-          <SelectContent working={true} /> /* sustituir por booleano que varie segun si se esta empacando */
+          <SelectContent working={0} /> /* sustituir por booleano que varie segun si se esta empacando */
         }
       </Box>
       <Divider />

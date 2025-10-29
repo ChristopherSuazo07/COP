@@ -24,7 +24,9 @@
     "apexcharts": "^5.3.5",
     "lightweight-charts": "^5.0.9",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

@@ -26,10 +26,18 @@ AreaGradient.propTypes = {
   id: PropTypes.string.isRequired,
 };
 
-function StatCard({ title, value, interval, trend, data, trendLabel, timeLabels }) {
+function StatCard({ title, value, interval, data, timeLabels }) {
   const theme = useTheme();
 
   const chartLabels = timeLabels || data.map((_, i) => `${i}s`);
+
+  // Determinar trend según el último dato comparado con el anterior
+  const lastIndex = data.length - 1;
+  let trend = 'neutral';
+  if (lastIndex > 0) {
+    if (data[lastIndex] > data[lastIndex - 1]) trend = 'up';
+    else if (data[lastIndex] < data[lastIndex - 1]) trend = 'down';
+  }
 
   const trendColors = {
     up: theme.palette.mode === 'light' ? theme.palette.success.main : theme.palette.success.dark,
@@ -40,7 +48,15 @@ function StatCard({ title, value, interval, trend, data, trendLabel, timeLabels 
   const labelColors = { up: 'success', down: 'error', neutral: 'default' };
   const color = labelColors[trend];
   const chartColor = trendColors[trend];
-  const defaultTrendValues = { up: '+25%', down: '-25%', neutral: '+5%' };
+
+  // Último dato para mostrar en el chip
+  const lastDataLabel = data.length > 0 ? `${data[lastIndex]} dB` : '';
+
+  // ID seguro para el gradiente
+  const gradientId = React.useMemo(
+    () => `area-gradient-${Math.random().toString(36).substr(2, 9)}`,
+    []
+  );
 
   return (
     <Card variant="outlined" sx={{ height: '100%', flexGrow: 1 }}>
@@ -52,7 +68,7 @@ function StatCard({ title, value, interval, trend, data, trendLabel, timeLabels 
           <Stack sx={{ justifyContent: 'space-between' }}>
             <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h4" component="p">{value}</Typography>
-              <Chip size="small" color={color} label={trendLabel || defaultTrendValues[trend]} />
+              <Chip size="small" color={color} label={lastDataLabel} />
             </Stack>
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>{interval}</Typography>
           </Stack>
@@ -64,9 +80,9 @@ function StatCard({ title, value, interval, trend, data, trendLabel, timeLabels 
               showHighlight
               showTooltip
               xAxis={{ scaleType: 'band', data: chartLabels }}
-              sx={{ [`& .${areaElementClasses.root}`]: { fill: `url(#area-gradient-${value})` } }}
+              sx={{ [`& .${areaElementClasses.root}`]: { fill: `url(#${gradientId})` } }}
             >
-              <AreaGradient color={chartColor} id={`area-gradient-${value}`} />
+              <AreaGradient color={chartColor} id={gradientId} />
             </SparkLineChart>
           </Box>
         </Stack>
@@ -79,9 +95,7 @@ StatCard.propTypes = {
   data: PropTypes.arrayOf(PropTypes.number).isRequired,
   interval: PropTypes.string.isRequired,
   title: PropTypes.string.isRequired,
-  trend: PropTypes.oneOf(['down', 'neutral', 'up']).isRequired,
   value: PropTypes.string.isRequired,
-  trendLabel: PropTypes.string,
   timeLabels: PropTypes.arrayOf(PropTypes.string),
 };
 

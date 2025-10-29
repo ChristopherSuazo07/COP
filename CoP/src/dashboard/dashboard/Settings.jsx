@@ -16,8 +16,6 @@ import {
   treeViewCustomizations,
 } from './theme/customizations';
 import View1 from '../../views/View1';
-import { Outlet } from 'react-router-dom'
-
 
 
 const xThemeComponents = {
@@ -60,7 +58,7 @@ export default function Dashboard(props) {
           >
             <Header />
   
-            <Outlet/>
+            <h1>HOLAAAAA</h1>
             
           </Stack>
         </Box>

@@ -1,14 +1,23 @@
 import * as React from 'react';
 import Stack from '@mui/material/Stack';
-import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
+import { useLocation } from 'react-router-dom';
 import CustomDatePicker from './CustomDatePicker';
 import NavbarBreadcrumbs from './NavbarBreadcrumbs';
-import MenuButton from './MenuButton';
 import ColorModeIconDropdown from '../../../shared-theme/ColorModeIconDropdown';
 
-import Search from './Search';
-
 export default function Header() {
+  const location = useLocation();
+
+  // Definimos los textos según la ruta
+  const breadcrumbTextMap = {
+    '/': 'Monitoreo de Proceso',
+    '/AjustedeParametros': 'Ajustes de Parametros',
+    '/Historial': 'Historial',
+  };
+
+  // Obtenemos el texto correspondiente, por defecto mostramos "/"
+  const breadcrumbText = breadcrumbTextMap[location.pathname] || '';
+
   return (
     <Stack
       direction="row"
@@ -22,10 +31,9 @@ export default function Header() {
       }}
       spacing={2}
     >
-      <NavbarBreadcrumbs text={"Monitoreo"} />
+      <NavbarBreadcrumbs text={breadcrumbText} />
       <Stack direction="row" sx={{ gap: 1 }}>
         <CustomDatePicker />
-     
         <ColorModeIconDropdown />
       </Stack>
     </Stack>

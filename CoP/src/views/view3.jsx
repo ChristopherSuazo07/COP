@@ -24,7 +24,7 @@ export default function View2() {
         <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
           <Ventahora
             title="Ventas por Hora"
-            value={10} // punto de equilibrio
+            value={454} // punto de equilibrio
             interval="Últimas 24 horas"
             data={hourlyData}
           />

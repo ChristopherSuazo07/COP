@@ -22,6 +22,7 @@
     "@mui/x-tree-view": "^8.15.0",
     "@react-spring/web": "^10.0.3",
     "apexcharts": "^5.3.5",
+    "firebase": "^12.6.0",
     "lightweight-charts": "^5.0.9",
     "react": "^19.1.1",
     "react-chartjs-2": "^5.3.1",

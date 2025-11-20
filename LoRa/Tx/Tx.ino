@@ -14,6 +14,25 @@ unsigned long lastSendTime = 0;
 const unsigned long ackTimeout = 2500; // 2.5 segundos
 String lastMessage = "";
 
+
+float Snr();
+
+
+struct DatosMensaje {
+  int PesoDispensar = 0;
+  bool Dispensando = false;
+  bool Exitoso = false;
+  int Rpm = 0;
+
+  float PorcentajeUltrasonico = 0.0;
+
+  int AumentoEqui = 0;
+
+  bool datosValidos = false; // Para saber si hubo algo válido
+};
+
+
+
 // ===== SETUP =====
 void setup() {
   Serial.begin(115200);
@@ -97,3 +116,137 @@ void processIncoming(String data) {
   String ack = "AT+SEND=" + sender + ",3,ACK";
   lora.println(ack);
 }
+
+
+
+//FUNCIONES 
+
+float Snr() {
+  return LoRa.packetSnr();
+}
+
+void ParametrosDeProceso(int PesoDispensar, bool Dispensando, bool Exitoso, int Rpm) {
+  
+  // Crear el texto del mensaje en formato clave=valor
+  String mensaje = "PESO=" + String(PesoDispensar) +
+                   ";DISPENSANDO=" + String(Dispensando ? 1 : 0) +
+                   ";EXITOSO=" + String(Exitoso ? 1 : 0) +
+                   ";RPM=" + String(Rpm);
+
+  // Enviar el mensaje por LoRa
+  LoRa.beginPacket();
+  LoRa.print(mensaje);
+  LoRa.endPacket();
+
+  // (Opcional) Mostrar lo enviado por serial
+  Serial.print("Mensaje enviado: ");
+  Serial.println(mensaje);
+}
+
+
+float calcularPorcentajeUltrasonico(float distanciaCm) {
+  const float minDist = 2.0;   // Distancia mínima del HC-SR04
+  const float maxDist = 10.0;  // 10 cm representan 0%
+
+  if (distanciaCm > maxDist) distanciaCm = maxDist;
+  if (distanciaCm < minDist) distanciaCm = minDist;
+
+  float porcentaje = (maxDist - distanciaCm) / (maxDist - minDist) * 100.0;
+
+  return porcentaje;
+}
+
+float leerUltrasonico() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duracion = pulseIn(ECHO_PIN, HIGH);
+  float distancia = duracion * 0.0343 / 2.0; // cm
+
+  return distancia;
+}
+
+void EnviarPorcentajeUltrasonico() {
+  float distancia = leerUltrasonico();
+  float porcentaje = calcularPorcentajeUltrasonico(distancia);
+
+  // Crear mensaje en formato clave=valor
+  String mensaje = "PORCENTAJE_ULTRA=" + String(porcentaje, 1);
+
+  // Enviar por LoRa
+  LoRa.beginPacket();
+  LoRa.print(mensaje);
+  LoRa.endPacket();
+
+  Serial.print("Distancia cm: ");
+  Serial.print(distancia);
+  Serial.print("  -> Porcentaje: ");
+  Serial.println(porcentaje);
+}
+
+void AumentoPuntoEqui(int cantidadIncrementar) {
+  // Crear mensaje clave=valor
+  String mensaje = "AUMENTO_EQUI=" + String(cantidadIncrementar);
+
+  // Enviar por LoRa
+  LoRa.beginPacket();
+  LoRa.print(mensaje);
+  LoRa.endPacket();
+
+  // (Opcional) Mostrar en serial
+  Serial.print("Aumento enviado: ");
+  Serial.println(mensaje);
+}
+
+
+
+
+
+DatosMensaje ProcesarMensaje(String mensaje) {
+  DatosMensaje datos; // la estructura donde guardaremos todo
+  datos.datosValidos = true;
+
+  mensaje.trim();
+  int start = 0;
+
+  while (true) {
+    int pos = mensaje.indexOf(';', start);
+    String segmento;
+
+    if (pos == -1) {
+      segmento = mensaje.substring(start);
+    } else {
+      segmento = mensaje.substring(start, pos);
+    }
+
+    segmento.trim();
+
+    int eqPos = segmento.indexOf('=');
+    if (eqPos != -1) {
+      String clave = segmento.substring(0, eqPos);
+      String valor = segmento.substring(eqPos + 1);
+
+      clave.trim();
+      valor.trim();
+
+      if (clave == "PESO") datos.PesoDispensar = valor.toInt();
+      else if (clave == "DISPENSANDO") datos.Dispensando = valor.toInt() == 1;
+      else if (clave == "EXITOSO") datos.Exitoso = valor.toInt() == 1;
+      else if (clave == "RPM") datos.Rpm = valor.toInt();
+      else if (clave == "PORCENTAJE_ULTRA") datos.PorcentajeUltrasonico = valor.toFloat();
+      else if (clave == "AUMENTO_EQUI") datos.AumentoEqui = valor.toInt();
+    }
+
+    if (pos == -1) break;
+    start = pos + 1;
+  }
+
+  return datos;
+}
+
+
+
+

@@ -1,5 +1,5 @@
 //===================Incluyendo Librerias====================
-//FC 216.76 Actual en Flash 18/11/25
+//FC 212.09 Actual en Flash 18/11/25
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
@@ -34,6 +34,8 @@ float pesoFinal = 0.0;
 //Definicion de Pines de Motor Paso a Paso
 #define DIR_PIN 14
 #define STEP_PIN 12
+#define ENABLE 10
+
 
 //Definicion de Pines del Módulo HX711 (Celda de Carga)
 #define DOUT 18
@@ -106,7 +108,7 @@ bool Dispensado(float pesoObjetivo);
 
 
 void moverMotor(int pasos, int velocidadMicrosegundos);
-void ejecutarCicloMotor(int pasos);
+void ejecutarCicloMotor(int pasos, bool ultimos);
 
 //Variable de Control
 bool sistema = true;
@@ -116,12 +118,13 @@ bool Exito = false;
 //==========================SetUp=======================================//
 void setup() {
   Serial.begin(115200);
+  configuracionMotor();
+
   configuracionLCD();
   configuracionLoRa();
 
   //falta imprimir mensaje de peticion de peso
 
-  configuracionMotor();
   configuracionCelda();
   configuracionServo();
   imprimirLCD(0, 1, "INICIO\nPROGRAMA", 1);
@@ -147,6 +150,8 @@ void loop() {
     delay(3000);
 
     bool prueba = Dispensado(Setpoint);
+    digitalWrite(ENABLE, HIGH);
+
 
 
     if (prueba) {
@@ -242,7 +247,9 @@ void configuracionLCD() {
 void configuracionMotor() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(STEP_PIN, OUTPUT);
-  
+  pinMode(ENABLE, OUTPUT);
+  digitalWrite(ENABLE, HIGH);
+
 
   imprimirLCD(0, 0, "StepMotor\nConfigurado", true);
   delay(1000);
@@ -446,7 +453,7 @@ void sellarBolsaConServo() {
   // Giro derecha (0°)
   servoMG996R.write(180);
   Serial.println("Giro derecha");
-  delay(5200);
+  delay(7500);
 
   // Pausa (90°)
   servoMG996R.write(90);
@@ -512,82 +519,97 @@ float SetPointValido() {
 void moverMotor(int pasos, int velocidadMicrosegundos) {
   for (int i = 0; i < pasos; i++) {
     digitalWrite(STEP_PIN, HIGH);
-    delayMicroseconds(velocidadMicrosegundos);  
+    delayMicroseconds(velocidadMicrosegundos);
 
     digitalWrite(STEP_PIN, LOW);
-    delayMicroseconds(velocidadMicrosegundos);  
+    delayMicroseconds(velocidadMicrosegundos);
   }
 }
 
 
 
 
-void ejecutarCicloMotor(int pasos) {
+void ejecutarCicloMotor(int pasos, bool ultimos) {
+  digitalWrite(ENABLE, LOW);
+
   digitalWrite(DIR_PIN, HIGH);
   moverMotor(pasos, 1800);  // más rápido y suave
   delay(200);
 
-  digitalWrite(DIR_PIN, LOW);
-  moverMotor(stepsPerRevolution / 3, 1800);
-  delay(200);
+  if (!ultimos) {
+    digitalWrite(DIR_PIN, LOW);
+    moverMotor(stepsPerRevolution / 3, 1800);
+    delay(200);
+  }
 }
 
 
+// bool Dispensado(float pesoObjetivo) {
+//   Serial.println("Iniciando llenado...");
+
+//   while (true) {
+
+//     float pesoActual = GrtoLB(lecturaDePesoGr());
+//     Serial.print("Peso actual: ");
+//     Serial.print(pesoActual, 2);
+//     Serial.println(" lb");
+
+//     if (pesoActual >= pesoObjetivo) {
+//       Serial.println("Peso objetivo alcanzado.");
+//       sellarBolsaConServo();
+//       break;
+//     }
+
+//     ejecutarCicloMotor(220);
+//   }
+//   return true;
+// }
+
 bool Dispensado(float pesoObjetivo) {
-  Serial.println("Iniciando llenado...");
+
 
   while (true) {
 
     float pesoActual = GrtoLB(lecturaDePesoGr());
-    Serial.print("Peso actual: ");
-    Serial.print(pesoActual, 2);
-    Serial.println(" lb");
+    float error = pesoObjetivo - pesoActual;
+    float errorRelativo = error / pesoObjetivo;
 
-    if (pesoActual >= pesoObjetivo) {
-      Serial.println("Peso objetivo alcanzado.");
+
+    // ---- Etapa final: muy cerca ----
+    if (errorRelativo <= 0.15) {  // 2% del objetivo
+      delay(2000);
       sellarBolsaConServo();
-      break;
+      return true;
     }
 
-    ejecutarCicloMotor(220);
+    // ---- Motor rápido: falta mucho ----
+    if (errorRelativo >= 0.50) {  // más del 40%
+      ejecutarCicloMotor(200, 0);
+      imprimirLCD(0, 0, "Etapa 1: Rápido", 1);
+    }
+
+    // ---- Motor medio: falta moderado ----
+    else if (errorRelativo > 0.40) {  // entre 20% y 40%
+      ejecutarCicloMotor(30, 1);
+      imprimirLCD(0, 0, "Etapa 2: Medio", 1);
+    }
+
+    // ---- Motor fino: muy cerca ----
+    else {
+      ejecutarCicloMotor(20, 1);  // movimientos MUY pequeños
+      imprimirLCD(0, 0, "Etapa 3: Fino", 1);
+    }
+
+    // Control por error
+
+    imprimirLCD(0, 0, "Peso: " + String(pesoActual), 1);
+    delay(150);  // pequeño respiro para nueva lectura
   }
-  return true;
 }
 
-// bool Dispensado(float pesoObjetivo){
-
-
-//   while(true){
-    
-//     float pesoActual = GrtoLB(lecturaDePesoGr());
-//     float error = pesoObjetivo - pesoActual;
-
-    
-//     // Si ya alcanzaste objetivo
-//     if (error <= 0.05) {
-//       sellarBolsaConServo();
-//       return true;
-//     } else if(error <= 0.70){
-//       ejecutarCicloMotor(220);
-//       imprimirLCD(0, 0, "Antes del 70",1);
-
-//     } else if(error <= 0.95){
-//       ejecutarCicloMotor(220);
-//       imprimirLCD(0, 0, "Antes del 95",1);
-
-//     }
-
-//     // Control por error
-    
-
-//     delay(150);  // pequeño respiro para nueva lectura
-//   }
-  
-// }
 
 
 
-
-//HACE FALTA INTEGRAR EL ENVIO DE INFORMACION EN LAS DIFERENTES ETAPAS E IMPLEMENTAR 
+//HACE FALTA INTEGRAR EL ENVIO DE INFORMACION EN LAS DIFERENTES ETAPAS E IMPLEMENTAR
 //LA INTEGRACION RECIBIR INFO
 //RECIBIR: VARAIBLES PID, PESO CONOCIDO, OPCIONES (1,2), PESO A DISPENSAR.

@@ -60,10 +60,12 @@ Servo servoMG996R;
 #define RX_LoRa 32
 #define TX_LoRa 33
 HardwareSerial lora(2);      // UART2 (Serial2)
-String myAddress = "2";      // Direcciones propia de cada ESP32
-String targetAddress = "1";  //
+String myAddress = "1";      // Direcciones propia de cada ESP32
+String targetAddress = "2";  //
 String loraBand = "915000000";
 String loraNetworkID = "18";
+
+
 // ===== VARIABLES =====
 bool waitingAck = false;
 unsigned long lastSendTime = 0;
@@ -84,6 +86,21 @@ float weight_In_lb;
 
 //Variables del StepMotor:
 const int stepsPerRevolution = 200;
+
+
+
+
+//Struct del Mensaje
+struct DatosMensaje {
+  float PesoDispensar = 0;
+  bool Dispensando = false;
+  bool Exitoso = false;
+  int Rpm = 0;
+  float PorcentajeUltrasonico = 0.0;
+  int AumentoEqui = 0;
+  bool datosValidos = false;  // Indica si el mensaje recibido contenía uno o más datos válidos
+};
+
 //Prototipado de Funciones Propias
 void configuracionLCD();    //añadida
 void configuracionCelda();  //añadida
@@ -94,7 +111,6 @@ void calibracionCelda();
 void imprimirLCD(int col, int fila, String msj, bool clear);
 void sendMessage(String msg);
 void processIncoming(String data);
-void sendMessage(String msg);
 void sendAT(String command);
 float leerTeclado(String mensaje);
 
@@ -109,6 +125,10 @@ bool Dispensado(float pesoObjetivo);
 
 void moverMotor(int pasos, int velocidadMicrosegundos);
 void ejecutarCicloMotor(int pasos, bool ultimos);
+void Snr();
+void ParametrosDeProceso(float PesoDispensar, bool Dispensando, bool Exitoso);
+void EnviarRPM(int rpm);
+
 
 //Variable de Control
 bool sistema = true;
@@ -123,12 +143,17 @@ void setup() {
   configuracionLCD();
   configuracionLoRa();
 
+
   //falta imprimir mensaje de peticion de peso
 
   configuracionCelda();
   configuracionServo();
+  Serial.println("VERIF=Iniciando Comunicación con CoP");
+
+  sendMessage("VERIF=Iniciando Comunicación con CoP");
+  imprimirLCD(0, 1, "Iniciando\nComunicacion\nCon CoP", 1);
+
   imprimirLCD(0, 1, "INICIO\nPROGRAMA", 1);
-  delay(1500);
 }
 
 
@@ -148,6 +173,7 @@ void loop() {
     imprimirLCD(0, 1, "DISPENSANDO: " + String(Setpoint) + lbs, 1);
 
     delay(3000);
+
 
     bool prueba = Dispensado(Setpoint);
     digitalWrite(ENABLE, HIGH);
@@ -177,6 +203,8 @@ void loop() {
     imprimirLCD(0, 0, "Peso:\nLibras: " + String(pesoLb) + "\nGramos: " + String(pesoGr), true);
     delay(5000);
   }
+
+  Snr();
 }
 
 
@@ -339,10 +367,6 @@ void sendMessage(String msg) {
     if (resp.indexOf("OK") >= 0) {
       Serial.println("📤 Enviado: \"" + msg + "\"");
     }
-  } else {
-    CodigoDeError = "E: Envio de Msj";
-    imprimirLCD(0, 0, CodigoDeError, true);
-    Serial.println("🔴 " + CodigoDeError);
   }
 }
 
@@ -369,6 +393,8 @@ void processIncoming(String data) {
   String ack = "AT+SEND=" + sender + ",3,ACK";
   lora.println(ack);
 }
+
+
 
 //========= LCD
 void imprimirLCD(int col, int fila, String msj, bool clear) {
@@ -538,35 +564,21 @@ void ejecutarCicloMotor(int pasos, bool ultimos) {
 
   if (!ultimos) {
     digitalWrite(DIR_PIN, LOW);
-    moverMotor(stepsPerRevolution / 3, 1800);
+    moverMotor(stepsPerRevolution / 4, 1800);
+    delay(200);
+  } else {
+    digitalWrite(DIR_PIN, LOW);
+    moverMotor(20, 1800);
     delay(200);
   }
 }
 
 
-// bool Dispensado(float pesoObjetivo) {
-//   Serial.println("Iniciando llenado...");
-
-//   while (true) {
-
-//     float pesoActual = GrtoLB(lecturaDePesoGr());
-//     Serial.print("Peso actual: ");
-//     Serial.print(pesoActual, 2);
-//     Serial.println(" lb");
-
-//     if (pesoActual >= pesoObjetivo) {
-//       Serial.println("Peso objetivo alcanzado.");
-//       sellarBolsaConServo();
-//       break;
-//     }
-
-//     ejecutarCicloMotor(220);
-//   }
-//   return true;
-// }
-
 bool Dispensado(float pesoObjetivo) {
 
+  int control = 0;
+
+  ParametrosDeProceso(pesoObjetivo, 1, 0);
 
   while (true) {
 
@@ -576,28 +588,48 @@ bool Dispensado(float pesoObjetivo) {
 
 
     // ---- Etapa final: muy cerca ----
-    if (errorRelativo <= 0.15) {  // 2% del objetivo
-      delay(2000);
+    if (errorRelativo <= 0.3) {  // 2% del objetivo 0.178      //EnviarRPM(0); Actual 560 con 0.25
+      delay(2500);
       sellarBolsaConServo();
+      EnviarRPM(0);
+
+      sendMessage("EXITOSO=" + String(true));
+
+      // ParametrosDeProceso(pesoObjetivo, 0, 1);
+
       return true;
     }
 
+
     // ---- Motor rápido: falta mucho ----
-    if (errorRelativo >= 0.50) {  // más del 40%
-      ejecutarCicloMotor(200, 0);
+    if (errorRelativo >= 0.50) {  // más del 50%
+      if (control == 0) {
+        EnviarRPM(210);
+        control++;
+      }
+      ejecutarCicloMotor(210, 0);
       imprimirLCD(0, 0, "Etapa 1: Rápido", 1);
     }
 
     // ---- Motor medio: falta moderado ----
     else if (errorRelativo > 0.40) {  // entre 20% y 40%
-      ejecutarCicloMotor(30, 1);
+      if (control == 1) {
+        EnviarRPM(90);
+        control++;
+      }
+      ejecutarCicloMotor(90, 1);
       imprimirLCD(0, 0, "Etapa 2: Medio", 1);
     }
 
     // ---- Motor fino: muy cerca ----
     else {
-      ejecutarCicloMotor(20, 1);  // movimientos MUY pequeños
-      imprimirLCD(0, 0, "Etapa 3: Fino", 1);
+      if (control == 2) {
+        EnviarRPM(70);
+        control++;
+      }
+      //EnviarRPM(70);
+      ejecutarCicloMotor(70, 1);  // movimientos MUY pequeños
+      imprimirLCD(0, 0, "Etapa 3: Fina", 1);
     }
 
     // Control por error
@@ -607,9 +639,110 @@ bool Dispensado(float pesoObjetivo) {
   }
 }
 
+void Snr() {
 
+  // sendMessage("SNR="+String(lora.packetSnr());
+
+  sendMessage("SNR=" + String(40));
+  delay(300);
+}
+
+void ParametrosDeProceso(float PesoDispensar, bool Dispensando, bool Exitoso) {
+
+  // Crear el texto del mensaje en formato clave=valor
+  String mensaje = "PESO=" + String(PesoDispensar) + ";DISPENSANDO=" + String(Dispensando ? 1 : 0) + ";EXITOSO=" + String(Exitoso ? 1 : 0) + ";";
+
+  // Enviar el mensaje por LoRa
+
+  // (Opcional) Mostrar lo enviado por serial
+  Serial.print("Mensaje enviado: ");
+  Serial.println(mensaje);
+
+  sendMessage(mensaje);
+}
+
+void EnviarRPM(int pasos) {
+
+  int rpm = (pasos / 200) / (1.8 / 60000);
+
+  sendMessage("RPM=" + String(rpm));
+}
+
+
+// DatosMensaje ProcesarMensajeEntrante(String data) {
+
+//   DatosMensaje datos;
+//   datos.datosValidos = false;
+
+//   // 1️⃣ Extraer mensaje del formato LoRa
+//   int firstComma = data.indexOf(',');
+//   int secondComma = data.indexOf(',', firstComma + 1);
+//   int lastComma = data.lastIndexOf(',');
+
+//   if (firstComma == -1 || secondComma == -1 || lastComma == -1) {
+//     Serial.println("⚠️ Formato inválido");
+//     return datos;
+//   }
+
+//   String sender = data.substring(5, firstComma);
+//   String msg = data.substring(secondComma + 1, lastComma);
+//   msg.trim();
+
+//   // 2️⃣ Si es ACK, no procesar
+//   if (msg == "ACK") {
+//     Serial.println("ACK recibido");
+//     return datos;
+//   }
+
+//   // 3️⃣ Enviar ACK de vuelta
+//   String ack = "AT+SEND=" + sender + ",3,ACK";
+//   lora.println(ack);
+
+//   // 4️⃣ Procesar claves=valores
+//   Serial.println("📩 Mensaje recibido:");
+
+//   int start = 0;
+//   datos.datosValidos = true;
+
+//   while (true) {
+
+//     int pos = msg.indexOf(';', start);
+//     String segmento;
+
+//     if (pos == -1) segmento = msg.substring(start);
+//     else segmento = msg.substring(start, pos);
+
+//     segmento.trim();
+//     if (segmento.length() == 0) break;
+
+//     int eqPos = segmento.indexOf('=');
+//     if (eqPos != -1) {
+
+//       String clave = segmento.substring(0, eqPos);
+//       String valor = segmento.substring(eqPos + 1);
+//       clave.trim();
+//       valor.trim();
+
+//       // 🖨️ Imprimir clave = valor
+//       Serial.println(" - " + clave + " = " + valor);
+
+//       // Guardar en el struct según la clave
+//       if (clave == "PESO") datos.PesoDispensar = valor.toInt();
+//       else if (clave == "DISPENSANDO") datos.Dispensando = valor.toInt() == 1;
+//       else if (clave == "EXITOSO") datos.Exitoso = valor.toInt() == 1;
+//       else if (clave == "RPM") datos.Rpm = valor.toInt();
+//       else if (clave == "PORCENTAJE_ULTRA") datos.PorcentajeUltrasonico = valor.toFloat();
+//       else if (clave == "AUMENTO_EQUI") datos.AumentoEqui = valor.toInt();
+//     }
+
+//     if (pos == -1) break;
+//     start = pos + 1;
+//   }
+
+//   return datos;
+// }
 
 
 //HACE FALTA INTEGRAR EL ENVIO DE INFORMACION EN LAS DIFERENTES ETAPAS E IMPLEMENTAR
 //LA INTEGRACION RECIBIR INFO
-//RECIBIR: VARAIBLES PID, PESO CONOCIDO, OPCIONES (1,2), PESO A DISPENSAR.
+//RECIBIR:  , PESO CONOCIDO, OPCIONES (1,2).

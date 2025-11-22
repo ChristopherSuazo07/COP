@@ -34,8 +34,8 @@ function Ventahora({ title, value, interval, data }) {
 
   // Determinamos el trend según la comparación con el punto de equilibrio
   let trend = "neutral";
-  if (total < value) trend = "down";
-  else if (total > value) trend = "up";
+  if (total < 20) trend = "down";
+  else if (total > 20) trend = "up";
 
   // Colores según trend
   const trendColors = {
@@ -122,7 +122,7 @@ function Ventahora({ title, value, interval, data }) {
               <Box sx={{ display: "flex", alignItems: "center" }}>
                 
                 <Typography variant="h3" sx={{ fontWeight: 700 }}>
-                  {value}
+                  20
                 </Typography>
               </Box>
             </Box>
